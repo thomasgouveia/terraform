@@ -19,6 +19,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	coordinationv1 "k8s.io/client-go/kubernetes/typed/coordination/v1"
+	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -62,6 +63,12 @@ func New() backend.Backend {
 				Optional:    true,
 				DefaultFunc: schema.EnvDefaultFunc("KUBE_NAMESPACE", "default"),
 				Description: "Namespace to store the secret in.",
+			},
+			"create_namespace": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Default:     false,
+				Description: "Boolean to control whether to create the namespace or not if it does not exist.",
 			},
 			"in_cluster_config": {
 				Type:        schema.TypeBool,
@@ -192,12 +199,28 @@ type Backend struct {
 	*schema.Backend
 
 	// The fields below are set from configure
-	kubernetesSecretClient dynamic.ResourceInterface
-	kubernetesLeaseClient  coordinationv1.LeaseInterface
-	config                 *restclient.Config
-	namespace              string
-	labels                 map[string]string
-	nameSuffix             string
+	kubernetesNamespaceClient corev1.NamespaceInterface
+	kubernetesSecretClient    dynamic.ResourceInterface
+	kubernetesLeaseClient     coordinationv1.LeaseInterface
+	config                    *restclient.Config
+	namespace                 string
+	createNamespace           bool
+	labels                    map[string]string
+	nameSuffix                string
+}
+
+func (b Backend) KubernetesNamespaceClient() (corev1.NamespaceInterface, error) {
+	if b.kubernetesNamespaceClient != nil {
+		return b.kubernetesNamespaceClient, nil
+	}
+
+	client, err := corev1.NewForConfig(b.config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to configure: %s", err)
+	}
+
+	b.kubernetesNamespaceClient = client.Namespaces()
+	return b.kubernetesNamespaceClient, nil
 }
 
 func (b Backend) KubernetesSecretClient() (dynamic.ResourceInterface, error) {
@@ -275,6 +298,10 @@ func (b *Backend) configure(ctx context.Context) error {
 			labels[k] = vv.(string)
 		}
 		b.labels = labels
+	}
+
+	if v, ok := data.GetOk("create_namespace"); ok {
+		b.createNamespace = v.(bool)
 	}
 
 	ns := data.Get("namespace").(string)

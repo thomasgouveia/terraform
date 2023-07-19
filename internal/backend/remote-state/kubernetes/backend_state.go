@@ -82,6 +82,10 @@ func (b *Backend) StateMgr(name string) (statemgr.Full, error) {
 		return nil, err
 	}
 
+	if err := c.init(); err != nil {
+		return nil, err
+	}
+
 	stateMgr := &remote.State{Client: c}
 
 	// Grab the value
@@ -146,6 +150,11 @@ func (b *Backend) remoteClient(name string) (*RemoteClient, error) {
 		return nil, errors.New("missing state name")
 	}
 
+	namespaceClient, err := b.KubernetesNamespaceClient()
+	if err != nil {
+		return nil, err
+	}
+
 	secretClient, err := b.KubernetesSecretClient()
 	if err != nil {
 		return nil, err
@@ -157,17 +166,15 @@ func (b *Backend) remoteClient(name string) (*RemoteClient, error) {
 	}
 
 	client := &RemoteClient{
-		kubernetesSecretClient: secretClient,
-		kubernetesLeaseClient:  leaseClient,
-		namespace:              b.namespace,
-		labels:                 b.labels,
-		nameSuffix:             b.nameSuffix,
-		workspace:              name,
+		kubernetesNamespaceClient: namespaceClient,
+		kubernetesSecretClient:    secretClient,
+		kubernetesLeaseClient:     leaseClient,
+		namespace:                 b.namespace,
+		createNamespace:           b.createNamespace,
+		labels:                    b.labels,
+		nameSuffix:                b.nameSuffix,
+		workspace:                 name,
 	}
 
 	return client, nil
-}
-
-func (b *Backend) client() *RemoteClient {
-	return &RemoteClient{}
 }

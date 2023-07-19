@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/hashicorp/terraform/internal/states/remote"
@@ -25,7 +26,9 @@ import (
 	"k8s.io/utils/pointer"
 
 	coordinationv1 "k8s.io/api/coordination/v1"
+	v1 "k8s.io/api/core/v1"
 	coordinationclientv1 "k8s.io/client-go/kubernetes/typed/coordination/v1"
+	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 )
 
 const (
@@ -37,12 +40,30 @@ const (
 )
 
 type RemoteClient struct {
-	kubernetesSecretClient dynamic.ResourceInterface
-	kubernetesLeaseClient  coordinationclientv1.LeaseInterface
-	namespace              string
-	labels                 map[string]string
-	nameSuffix             string
-	workspace              string
+	kubernetesSecretClient    dynamic.ResourceInterface
+	kubernetesLeaseClient     coordinationclientv1.LeaseInterface
+	kubernetesNamespaceClient corev1.NamespaceInterface
+	namespace                 string
+	createNamespace           bool
+	labels                    map[string]string
+	nameSuffix                string
+	workspace                 string
+}
+
+// init initializes the remote client by creating the namespace if required.
+func (c *RemoteClient) init() error {
+	if !c.createNamespace {
+		return nil
+	}
+
+	log.Println("[TRACE] Ensure existence of Kubernetes namespace due to create_namespace = true in backend configuration")
+
+	ns := &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: c.namespace}}
+	if _, err := c.kubernetesNamespaceClient.Create(context.Background(), ns, metav1.CreateOptions{}); err != nil && !k8serrors.IsAlreadyExists(err) {
+		return err
+	}
+
+	return nil
 }
 
 func (c *RemoteClient) Get() (payload *remote.Payload, err error) {
